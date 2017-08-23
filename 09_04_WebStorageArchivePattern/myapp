@@ -1,0 +1,20 @@
+compress
+compresscmd /bin/gzip
+compressoptions -9
+compressext .gz
+
+dateext
+dateformat -%Y-%m-%d-%s
+
+rotate 2
+nomail
+missingok
+size 1k
+
+/var/log/test/*.log {
+sharedscripts
+postrotate
+aws s3 sync /var/log/test/ s3://houssoli-1ce8b98d-8735-47ff-a9dc-7f4b57820a74/ --exclude "*" --include "*.gz"
+endscript
+}
+EOF

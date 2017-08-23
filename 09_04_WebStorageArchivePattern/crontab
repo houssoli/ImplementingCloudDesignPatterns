@@ -1,0 +1,1 @@
+*/1  *  *  *  * root logrotate --state /var/run/log_rotate.state /etc/logrotate.d/myapp >>/var/log/logrotate 2>&1

@@ -1,0 +1,210 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Full stack template example",
+  "Parameters": {
+    "KeyName": {
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access to the web server",
+      "Type": "String",
+      "Default": "cdr-pcs"
+    },
+    "SubnetId": {
+      "Default": "",
+      "Type": "String",
+      "Description": "The list of SubnetIds, for at least two Availability Zones in the region in your Virtual Private Cloud (VPC)"
+    },
+    "SecurityGroup": {
+      "Default": "",
+      "Description": "The ID of the first security group.",
+      "Type": "String"
+    },
+    "AWSAMI": {
+      "Default": "ami-146e2a7c",
+      "Type": "String",
+      "Description": "The AMI ID for the AWS Linux instance."
+    },
+    "IAMRole": {
+      "Default": "testRole",
+      "Type": "String",
+      "Description": "The IAM Role for EC2 and S3."
+    }
+  },
+  "Resources": {
+    "DBWaitHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle",
+      "Properties": {}
+    },
+    "DBWaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "DependsOn": "DBInstance",
+      "Properties": {
+        "Handle": {
+          "Ref": "DBWaitHandle"
+        },
+        "Timeout": "300"
+      }
+    },
+    "WebServerWaitHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle",
+      "Properties": {}
+    },
+    "WebServerWaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "DependsOn": "WebInstance",
+      "Properties": {
+        "Handle": {
+          "Ref": "WebServerWaitHandle"
+        },
+        "Timeout": "300"
+      }
+    },
+    "WebServerELB": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "Instances" : [ { "Ref" : "WebInstance" } ],
+        "Listeners": [{
+          "LoadBalancerPort": "80",
+          "InstancePort": "80",
+          "Protocol": "HTTP"
+        }],
+        "HealthCheck": {
+          "Target": "HTTP:80/",
+          "HealthyThreshold": "3",
+          "UnhealthyThreshold": "2",
+          "Interval": "6",
+          "Timeout": "5"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "SecurityGroup"
+          }
+        ],
+        "Scheme": "internal",
+        "Subnets": [{
+          "Ref": "SubnetId"
+        }]
+      }
+    },
+    "WebInstance": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": {
+          "Ref": "AWSAMI"
+        },
+        "NetworkInterfaces": [
+          {
+            "GroupSet": [
+              {
+                "Ref": "SecurityGroup"
+              }
+            ],
+            "AssociatePublicIpAddress": "false",
+            "DeviceIndex": "0",
+            "DeleteOnTermination": "true",
+            "SubnetId": {
+              "Ref": "SubnetId"
+            }
+          }
+        ],
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "InstanceType": "t2.micro",
+        "IamInstanceProfile": {
+          "Ref": "IAMRole"
+        },
+        "UserData" : {
+           "Fn::Base64" : {
+               "Fn::Join" : [ "", [
+                  "#!/bin/bash\n",
+                  "yum groupinstall -y \"Web Server\" \"PHP Support\"\n",
+                  "yum install -y mysql php-mysql\n",
+                  "cat <<EOF >/var/www/html/index.php\n",
+                  "<?php\n",
+                  "\\$mysql_conn = mysql_connect('", { "Fn::GetAtt": ["DBInstance", "PrivateIp"] }, "', 'root', 'abc1234!');\n",
+                  "mysql_select_db('mydb') or die('Could not select database');\n",
+                  "\\$query = \"SELECT firstname, lastname FROM people\";\n",
+                  "\\$result = mysql_query(\\$query);\n",
+                  "while (\\$line = mysql_fetch_array(\\$result, MYSQL_ASSOC)) {\n",
+                  " \\$lastname=\\$line['lastname'];\n",
+                  " \\$firstname=\\$line['firstname'];\n",
+                  " echo \"<p>\\$firstname \\$lastname</p><br/>\";\n",
+                  "}\n",
+                  "?>\n",
+                  "EOF\n",
+                  "service httpd start\n",
+                  "/opt/aws/bin/cfn-signal -e 0 '", { "Ref": "WebServerWaitHandle" }, "' > /var/log/cfn-init.log 2>&1\n"
+              ] ]
+           }
+        }
+      }
+    },
+    "DBInstance": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": {
+          "Ref": "AWSAMI"
+        },
+        "NetworkInterfaces": [
+          {
+            "GroupSet": [
+              {
+                "Ref": "SecurityGroup"
+              }
+            ],
+            "AssociatePublicIpAddress": "false",
+            "DeviceIndex": "0",
+            "DeleteOnTermination": "true",
+            "SubnetId": {
+              "Ref": "SubnetId"
+            }
+          }
+        ],
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "InstanceType": "t2.micro",
+        "IamInstanceProfile": {
+          "Ref": "IAMRole"
+        },
+        "UserData" : {
+           "Fn::Base64" : {
+               "Fn::Join" : [ "", [
+                  "#!/bin/bash\n",
+                  "yum install -y mysql-server\n",
+                  "service mysqld start\n",
+                  "mysqladmin -u root password 'abc1234!'\n",
+                  "cat <<EOF | mysql -uroot -pabc1234\\!\n",
+                  "CREATE DATABASE mydb;\n",
+                  "USE mydb;\n",
+                  "CREATE TABLE people (\n",
+                  "id INT AUTO_INCREMENT PRIMARY KEY,\n",
+                  "firstname VARCHAR(50),\n",
+                  "lastname VARCHAR(50)\n",
+                  ");\n",
+                  "INSERT INTO people (firstname, lastname) VALUES ('test', 'testerson');\n",
+                  "GRANT SELECT ON mydb.people TO 'root'@'%' IDENTIFIED BY 'abc1234!';\n",
+                  "FLUSH PRIVILEGES;\n",
+                  "EOF\n",
+                  "\n",
+                  "/opt/aws/bin/cfn-signal -e 0 '", { "Ref": "DBWaitHandle" }, "' > /var/log/cfn-init.log 2>&1\n"
+              ] ]
+           }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "WebServer": {
+      "Description": "The URL of the load balancer for the web instance.",
+      "Value": {
+        "Fn::GetAtt": ["WebServerELB", "DNSName"]
+      }
+    },
+    "DBServer": {
+      "Description": "The private IP for the database instance.",
+      "Value": {
+        "Fn::GetAtt": ["DBInstance", "PrivateIp"]
+      }
+    }
+  }
+}

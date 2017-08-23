@@ -1,0 +1,25 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BucketList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:List*"
+      ],
+      "Resource": [
+        "arn:aws:s3:::houssoli-1ce8b98d-8735-47ff-a9dc-7f4b57820a74"
+      ]
+    },
+    {
+      "Sid": "BucketAll",
+      "Effect": "Allow",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": [
+        "arn:aws:s3:::houssoli-1ce8b98d-8735-47ff-a9dc-7f4b57820a74/*"
+      ]
+    }
+  ]
+}
